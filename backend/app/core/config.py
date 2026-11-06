@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     max_dataset_rows: int = 1_000_000
     max_dataset_columns: int = 1_000
     max_preview_rows: int = 100
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    max_agent_iterations: int = 5
+    max_agent_tool_calls: int = 5
 
     model_config = SettingsConfigDict(
         env_file=ROOT_ENV_FILE,

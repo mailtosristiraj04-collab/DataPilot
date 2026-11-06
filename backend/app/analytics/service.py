@@ -29,12 +29,16 @@ class AnalyticalService:
         parameters: dict[str, Any],
         db: Session,
         principal: Principal,
+        session_id: UUID | None = None,
+        agent_name: str | None = None,
     ) -> tuple[UUID, dict[str, Any]]:
         started = perf_counter()
         execution = AnalyticalExecution(
             owner_id=principal.principal_id,
             dataset_id=dataset.id,
+            session_id=session_id,
             operation_name=request_name,
+            agent_name=agent_name,
             arguments=parameters,
             status=ExecutionStatus.running,
         )

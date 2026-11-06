@@ -8,13 +8,26 @@ from app.analytics.errors import AnalyticalError
 from app.analytics.registry import registry
 from app.analytics.schemas import AnalysisRequest, AnalysisResponse, ToolInfo
 from app.analytics.service import AnalyticalService
-from app.api.deps import get_analytical_service, get_dataset_service, get_owned_dataset
+from app.api.deps import (
+    get_analytical_service,
+    get_chat_service,
+    get_dataset_service,
+    get_owned_dataset,
+)
 from app.core.config import Settings, get_settings
 from app.core.security import Principal, get_current_principal
 from app.db.models import Dataset
 from app.db.session import get_db
 from app.ingestion.service import DatasetService
 from app.ingestion.validation import DatasetValidationError
+from app.orchestration.errors import (
+    LLMConfigurationError,
+    LLMExecutionError,
+    OrchestrationError,
+    ToolExecutionError,
+)
+from app.orchestration.schemas import ChatRequest, ChatResponse
+from app.orchestration.service import ChatService
 from app.schemas.datasets import (
     DatasetDetailResponse,
     DatasetMetadataResponse,
@@ -139,3 +152,28 @@ def execute_analysis(
         status="succeeded",
         result=result,
     )
+
+
+@router.post(
+    "/datasets/{dataset_id}/chat",
+    response_model=ChatResponse,
+)
+def chat_about_dataset(
+    request: ChatRequest,
+    dataset: Dataset = Depends(get_owned_dataset),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+    service: ChatService = Depends(get_chat_service),
+) -> ChatResponse:
+    try:
+        return service.execute(dataset, request.question, request.session_id, db, principal)
+    except OrchestrationError as exc:
+        if isinstance(exc, LLMConfigurationError):
+            code = status.HTTP_503_SERVICE_UNAVAILABLE
+        elif isinstance(exc, LLMExecutionError):
+            code = status.HTTP_502_BAD_GATEWAY
+        elif isinstance(exc, ToolExecutionError):
+            code = status.HTTP_400_BAD_REQUEST
+        else:
+            code = status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=str(exc)) from exc

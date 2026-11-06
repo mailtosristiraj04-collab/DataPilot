@@ -11,6 +11,7 @@ from app.core.security import Principal, get_current_principal
 from app.db.models import Dataset
 from app.db.session import get_db
 from app.ingestion.service import DatasetService
+from app.orchestration.service import ChatService
 
 
 def get_owned_dataset(
@@ -32,3 +33,10 @@ def get_dataset_service(settings: Settings = Depends(get_settings)) -> DatasetSe
 
 def get_analytical_service(settings: Settings = Depends(get_settings)) -> AnalyticalService:
     return AnalyticalService(settings, registry)
+
+
+def get_chat_service(
+    settings: Settings = Depends(get_settings),
+    analytical_service: AnalyticalService = Depends(get_analytical_service),
+) -> ChatService:
+    return ChatService(settings, registry, analytical_service)
