@@ -149,6 +149,11 @@ The current API exposes `GET /api/v1/analytics/tools` for registry discovery
 and `POST /api/v1/datasets/{dataset_id}/analytics` for execution. The latter
 reuses the ownership dependency and accepts only a tool name plus a validated
 parameters object; clients never provide filesystem paths or executable code.
+Registry results are validated against a Pydantic output contract before they
+are returned. Sort operations place nulls last for both directions. Trend
+operations parse datetimes with Pandas, normalize timezone-aware values to UTC,
+and aggregate by day, week, month, quarter, or year in UTC; invalid values are
+excluded from the trend.
 
 ## Frontend-backend communication
 

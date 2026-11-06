@@ -40,6 +40,7 @@ class AnalyticalService:
         )
         db.add(execution)
         db.flush()
+        db.commit()
         try:
             dataframe = read_dataset(self.dataset_service.get_path(dataset), dataset.file_format)
             result = self.registry.execute(request_name, dataframe, parameters)
@@ -68,10 +69,19 @@ class AnalyticalService:
             db.commit()
             raise
         except Exception:
+            execution_id = execution.id
             db.rollback()
             logger.exception(
                 "Analytical execution failed dataset=%s tool=%s",
                 dataset.id,
                 request_name,
             )
+            failed_execution = db.get(AnalyticalExecution, execution_id)
+            if failed_execution is not None:
+                failed_execution.status = ExecutionStatus.failed
+                failed_execution.error_details = {
+                    "message": "The analytical operation could not be completed"
+                }
+                failed_execution.duration_ms = int((perf_counter() - started) * 1000)
+                db.commit()
             raise AnalyticalError("The analytical operation could not be completed")

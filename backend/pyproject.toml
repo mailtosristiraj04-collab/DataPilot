@@ -41,6 +41,7 @@ include = ["app*"]
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
+markers = ["integration: tests requiring the configured PostgreSQL database"]
 
 [tool.ruff]
 line-length = 100

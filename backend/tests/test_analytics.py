@@ -1,6 +1,8 @@
 import io
+import json
 from uuid import UUID
 
+import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +20,7 @@ from app.analytics.schemas import (
     SummaryInput,
     TrendInput,
 )
+from app.analytics.service import AnalyticalService
 from app.analytics.tools import (
     detect_duplicates,
     detect_outliers,
@@ -93,6 +96,164 @@ def test_missing_values_and_chart_spec(dataframe: pd.DataFrame) -> None:
     )
     assert chart["data"][0]["type"] == "scatter"
     assert "x" in chart["data"][0] and "y" in chart["data"][0]
+
+
+@pytest.mark.parametrize(
+    ("chart_type", "parameters"),
+    [
+        ("bar", {"x_column": "category", "y_column": "value"}),
+        ("line", {"x_column": "date", "y_column": "value"}),
+        ("scatter", {"x_column": "value", "y_column": "other"}),
+        ("histogram", {"x_column": "value"}),
+        ("box", {"x_column": "value"}),
+        ("pie", {"x_column": "category", "y_column": "value"}),
+    ],
+)
+def test_all_chart_types_have_valid_specs(
+    dataframe: pd.DataFrame, chart_type: str, parameters: dict[str, str]
+) -> None:
+    result = registry.execute(
+        "generate_chart", dataframe, {"chart_type": chart_type, **parameters}
+    )
+    assert len(result["data"]) == 1
+    assert result["data"][0]["type"] == ("scatter" if chart_type == "line" else chart_type)
+    assert result["layout"]["title"]
+    if chart_type == "line":
+        assert result["data"][0]["mode"] == "lines"
+    if chart_type == "pie":
+        assert result["data"][0]["labels"] and result["data"][0]["values"]
+
+
+def test_registry_validates_every_registered_output(dataframe: pd.DataFrame) -> None:
+    parameters = {
+        "get_summary_statistics": {},
+        "get_missing_values": {},
+        "detect_duplicates": {},
+        "get_correlation": {"columns": ["value", "other"]},
+        "detect_outliers": {"column": "value"},
+        "filter_dataset": {
+            "conditions": [{"column": "category", "operator": "eq", "value": "a"}]
+        },
+        "sort_dataset": {"columns": ["value"]},
+        "group_by_analysis": {"group_by": ["category"], "aggregations": {"value": "sum"}},
+        "get_time_trends": {
+            "datetime_column": "date",
+            "metric_column": "value",
+        },
+        "generate_chart": {
+            "chart_type": "scatter",
+            "x_column": "value",
+            "y_column": "other",
+        },
+    }
+    for tool_name, tool_parameters in parameters.items():
+        result = registry.execute(tool_name, dataframe, tool_parameters)
+        assert isinstance(result, dict)
+        json.dumps(result)
+
+
+def test_correlation_reports_undefined_pairs() -> None:
+    result = registry.execute(
+        "get_correlation",
+        pd.DataFrame({"constant": [1, 1, 1], "empty": [np.nan, np.nan, np.nan]}),
+        {"columns": ["constant", "empty"], "method": "spearman"},
+    )
+    assert {item["reason"] for item in result["undefined_pairs"]} == {
+        "insufficient observations"
+    }
+
+
+def test_all_null_numeric_and_constant_zscore_are_explicit() -> None:
+    dataframe = pd.DataFrame({"empty": [np.nan, np.nan], "constant": [4.0, 4.0]})
+    summary = registry.execute("get_summary_statistics", dataframe, {})
+    assert summary["numeric"]["empty"]["count"] == 0
+    assert summary["numeric"]["empty"]["mean"] is None
+    outliers = registry.execute(
+        "detect_outliers", dataframe, {"column": "constant", "method": "zscore"}
+    )
+    assert outliers["affected_row_count"] == 0
+
+
+def test_contains_is_literal_and_sorting_puts_nulls_last() -> None:
+    dataframe = pd.DataFrame({"text": ["a.b", "axb", None], "value": [1, None, 2]})
+    filtered = registry.execute(
+        "filter_dataset",
+        dataframe,
+        {"conditions": [{"column": "text", "operator": "contains", "value": "."}]},
+    )
+    assert [row["text"] for row in filtered["rows"]] == ["a.b"]
+    sorted_result = registry.execute("sort_dataset", dataframe, {"columns": ["value"]})
+    assert [row["value"] for row in sorted_result["rows"]] == [1.0, 2.0, None]
+
+
+def test_trends_normalize_timezone_aware_datetimes(dataframe: pd.DataFrame) -> None:
+    dataframe["date"] = [
+        "2024-01-31T23:00:00-02:00",
+        "2024-02-01T01:00:00+00:00",
+        "2024-03-01T00:00:00Z",
+        "not-a-date",
+    ]
+    result = registry.execute(
+        "get_time_trends",
+        dataframe,
+        {"datetime_column": "date", "metric_column": "value", "interval": "month"},
+    )
+    assert result["rows"][0]["_date"].startswith("2024-02")
+    assert sum(row["count"] for row in result["rows"]) == 3
+
+
+def test_chart_schema_rejects_missing_required_columns() -> None:
+    with pytest.raises(ValueError):
+        ChartInput(chart_type="pie", x_column="category")
+
+
+def test_direct_and_registry_column_errors_are_analytical(dataframe: pd.DataFrame) -> None:
+    with pytest.raises(AnalyticalError):
+        get_summary_statistics(dataframe, SummaryInput(columns=["missing"]))
+    with pytest.raises(AnalyticalError):
+        registry.execute("get_summary_statistics", dataframe, {"columns": ["missing"]})
+
+
+def test_unexpected_failures_persist_failed_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import get_settings
+    from app.core.security import Principal
+    from app.db.models import AnalyticalExecution, Dataset, ExecutionStatus
+    from tests.conftest import TestSessionLocal
+
+    class FailingRegistry:
+        def execute(
+            self, name: str, dataframe: pd.DataFrame, parameters: dict[str, object]
+        ) -> dict[str, object]:
+            raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(
+        "app.analytics.service.read_dataset",
+        lambda path, file_format: (_ for _ in ()).throw(RuntimeError("read failure")),
+    )
+    with TestSessionLocal() as db:
+        dataset = Dataset(
+            owner_id="test-user",
+            original_filename="failure.csv",
+            storage_key="failure.csv",
+            file_format="csv",
+            file_size_bytes=1,
+        )
+        db.add(dataset)
+        db.commit()
+        service = AnalyticalService(get_settings(), FailingRegistry())
+        with pytest.raises(AnalyticalError):
+            service.execute(
+                dataset,
+                "get_summary_statistics",
+                {},
+                db,
+                Principal("test-user"),
+            )
+        execution = db.query(AnalyticalExecution).one()
+        assert execution.status is ExecutionStatus.failed
+        assert execution.error_details == {
+            "message": "The analytical operation could not be completed"
+        }
 
 
 def test_edge_cases_are_controlled(dataframe: pd.DataFrame) -> None:

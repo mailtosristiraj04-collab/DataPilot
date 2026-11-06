@@ -81,6 +81,7 @@ def detect_duplicates(dataframe: pd.DataFrame, inputs: DuplicateInput) -> dict[s
         "duplicate_row_count": int(dataframe.duplicated().sum()),
         "affected_row_count": int(duplicate_mask.sum()),
         "preview": records(preview),
+        "truncated": int(duplicate_mask.sum()) > inputs.preview_limit,
     }
 
 
@@ -95,7 +96,23 @@ def get_correlation(dataframe: pd.DataFrame, inputs: CorrelationInput) -> dict[s
     if non_numeric:
         raise AnalyticalError(f"Correlation requires numeric columns: {', '.join(non_numeric)}")
     matrix = dataframe[columns].corr(method=inputs.method)
-    return {"method": inputs.method, "columns": columns, "matrix": json_safe(matrix.to_dict())}
+    undefined_pairs = []
+    for index, left in enumerate(columns):
+        for right in columns[index + 1 :]:
+            pair = dataframe[[left, right]].dropna()
+            if len(pair) < 2:
+                reason = "insufficient observations"
+            elif pair[left].nunique() < 2 or pair[right].nunique() < 2:
+                reason = "zero variance"
+            else:
+                continue
+            undefined_pairs.append({"columns": [left, right], "reason": reason})
+    return {
+        "method": inputs.method,
+        "columns": columns,
+        "matrix": json_safe(matrix.to_dict()),
+        "undefined_pairs": undefined_pairs,
+    }
 
 
 def detect_outliers(dataframe: pd.DataFrame, inputs: OutlierInput) -> dict[str, Any]:
@@ -121,6 +138,15 @@ def detect_outliers(dataframe: pd.DataFrame, inputs: OutlierInput) -> dict[str, 
         details = {"lower_bound": lower, "upper_bound": upper}
     else:
         threshold = inputs.threshold if inputs.threshold is not None else 3.0
+        if values.nunique() < 2:
+            return {
+                "method": inputs.method,
+                "column": inputs.column,
+                "threshold": threshold,
+                "affected_row_count": 0,
+                "rows": [],
+                "zscore_threshold": threshold,
+            }
         zscores = pd.Series(stats.zscore(values, nan_policy="omit"), index=values.index)
         mask = series.index.to_series().map(zscores).abs() > threshold
         details = {"zscore_threshold": threshold}
@@ -161,7 +187,7 @@ def filter_dataset(dataframe: pd.DataFrame, inputs: FilterInput) -> dict[str, An
         elif condition.operator in {"contains", "starts_with", "ends_with"}:
             text = series.astype("string")
             if condition.operator == "contains":
-                mask = text.str.contains(str(condition.value), na=False)
+                mask = text.str.contains(str(condition.value), regex=False, na=False)
             elif condition.operator == "starts_with":
                 mask = text.str.startswith(str(condition.value), na=False)
             else:
@@ -176,13 +202,15 @@ def filter_dataset(dataframe: pd.DataFrame, inputs: FilterInput) -> dict[str, An
 
 def sort_dataset(dataframe: pd.DataFrame, inputs: SortInput) -> dict[str, Any]:
     ensure_columns(dataframe, inputs.columns)
+    sorted_dataframe = dataframe.sort_values(
+        inputs.columns,
+        ascending=inputs.direction == "asc",
+        na_position="last",
+    )
     return {
         "row_count": len(dataframe),
-        "rows": records(
-            dataframe.sort_values(inputs.columns, ascending=inputs.direction == "asc").head(
-                inputs.limit
-            )
-        ),
+        "rows": records(sorted_dataframe.head(inputs.limit)),
+        "truncated": len(dataframe) > inputs.limit,
     }
 
 
@@ -198,6 +226,7 @@ def group_by_analysis(dataframe: pd.DataFrame, inputs: GroupByInput) -> dict[str
         "group_by": inputs.group_by,
         "row_count": len(grouped),
         "rows": records(grouped.head(inputs.limit)),
+        "truncated": len(grouped) > inputs.limit,
     }
 
 
@@ -205,7 +234,7 @@ def get_time_trends(dataframe: pd.DataFrame, inputs: TrendInput) -> dict[str, An
     ensure_columns(dataframe, [inputs.datetime_column, inputs.metric_column])
     if not pd.api.types.is_numeric_dtype(dataframe[inputs.metric_column]):
         raise AnalyticalError("Trend metric must be numeric")
-    dates = pd.to_datetime(dataframe[inputs.datetime_column], errors="coerce")
+    dates = pd.to_datetime(dataframe[inputs.datetime_column], errors="coerce", utc=True)
     valid = dataframe.assign(_date=dates).dropna(subset=["_date", inputs.metric_column])
     if len(valid) < 2:
         raise AnalyticalError("At least two valid observations are required for a trend")
@@ -223,6 +252,7 @@ def get_time_trends(dataframe: pd.DataFrame, inputs: TrendInput) -> dict[str, An
         "metric_column": inputs.metric_column,
         "interval": inputs.interval,
         "rows": records(trend),
+        "truncated": False,
     }
 
 
@@ -231,26 +261,27 @@ def generate_chart(dataframe: pd.DataFrame, inputs: ChartInput) -> dict[str, Any
         column for column in (inputs.x_column, inputs.y_column, inputs.color_column) if column
     ]
     ensure_columns(dataframe, columns)
-    if inputs.chart_type in {"bar", "line", "scatter"} and not inputs.x_column:
-        raise AnalyticalError("This chart type requires x_column")
-    if inputs.chart_type in {"bar", "line", "scatter"} and not inputs.y_column:
-        raise AnalyticalError("This chart type requires y_column")
-    if inputs.chart_type in {"histogram", "box"} and not inputs.x_column:
-        raise AnalyticalError("This chart type requires x_column")
-    if inputs.chart_type == "pie" and not inputs.x_column:
-        raise AnalyticalError("Pie charts require x_column")
     data = dataframe.head(inputs.limit)
+    trace_type = "scatter" if inputs.chart_type == "line" else inputs.chart_type
     spec: dict[str, Any] = {
-        "data": [{"type": "pie" if inputs.chart_type == "pie" else inputs.chart_type}],
+        "data": [{"type": trace_type}],
         "layout": {"title": f"{inputs.chart_type.title()} chart"},
     }
     trace = spec["data"][0]
-    if inputs.x_column:
-        trace["x" if inputs.chart_type not in {"histogram", "box", "pie"} else "labels"] = data[
-            inputs.x_column
-        ].tolist()
-    if inputs.y_column:
+    if inputs.chart_type == "pie":
+        trace["labels"] = data[inputs.x_column].tolist()
+        trace["values"] = data[inputs.y_column].tolist()
+    elif inputs.chart_type == "histogram":
+        trace["x"] = data[inputs.x_column].tolist()
+    elif inputs.chart_type == "box":
+        trace["y"] = data[inputs.x_column].tolist()
+    else:
+        trace["x"] = data[inputs.x_column].tolist()
         trace["y"] = data[inputs.y_column].tolist()
+        if inputs.chart_type == "line":
+            trace["mode"] = "lines"
+        elif inputs.chart_type == "scatter":
+            trace["mode"] = "markers"
     if inputs.color_column:
         trace["marker"] = {"color": data[inputs.color_column].tolist()}
     return json_safe(spec)

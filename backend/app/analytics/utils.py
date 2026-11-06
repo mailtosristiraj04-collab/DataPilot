@@ -3,6 +3,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.analytics.errors import AnalyticalError
+
 
 def json_safe(value: Any) -> Any:
     if isinstance(value, dict):
@@ -27,7 +29,7 @@ def json_safe(value: Any) -> Any:
 def ensure_columns(dataframe: pd.DataFrame, columns: list[str]) -> None:
     missing = [column for column in columns if column not in dataframe.columns]
     if missing:
-        raise ValueError(f"Unknown column(s): {', '.join(missing)}")
+        raise AnalyticalError(f"Unknown column(s): {', '.join(missing)}")
 
 
 def records(dataframe: pd.DataFrame) -> list[dict[str, Any]]:
