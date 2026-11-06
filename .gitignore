@@ -20,3 +20,8 @@ data/
 storage/
 *.log
 .DS_Store
+
+
+# Generated build artifacts
+backend/*.egg-info/
+frontend/tsconfig.tsbuildinfo
