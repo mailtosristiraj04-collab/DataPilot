@@ -129,6 +129,9 @@ class AnalyticalExecution(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("datasets.id", ondelete="SET NULL")
+    )
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("analysis_sessions.id", ondelete="SET NULL")
     )

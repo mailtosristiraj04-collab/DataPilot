@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_dataset_service, get_owned_dataset
+from app.analytics.errors import AnalyticalError
+from app.analytics.registry import registry
+from app.analytics.schemas import AnalysisRequest, AnalysisResponse, ToolInfo
+from app.analytics.service import AnalyticalService
+from app.api.deps import get_analytical_service, get_dataset_service, get_owned_dataset
 from app.core.config import Settings, get_settings
 from app.core.security import Principal, get_current_principal
 from app.db.models import Dataset
@@ -105,3 +109,33 @@ def delete_dataset(
     service: DatasetService = Depends(get_dataset_service),
 ) -> None:
     service.delete_dataset(dataset, db)
+
+
+@router.get("/analytics/tools", response_model=list[ToolInfo])
+def list_analytical_tools() -> list[ToolInfo]:
+    return registry.list()
+
+
+@router.post(
+    "/datasets/{dataset_id}/analytics",
+    response_model=AnalysisResponse,
+)
+def execute_analysis(
+    request: AnalysisRequest,
+    dataset: Dataset = Depends(get_owned_dataset),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+    service: AnalyticalService = Depends(get_analytical_service),
+) -> AnalysisResponse:
+    try:
+        execution_id, result = service.execute(
+            dataset, request.tool_name, request.parameters, db, principal
+        )
+    except AnalyticalError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return AnalysisResponse(
+        execution_id=str(execution_id),
+        tool_name=request.tool_name,
+        status="succeeded",
+        result=result,
+    )

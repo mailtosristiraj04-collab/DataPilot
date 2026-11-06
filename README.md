@@ -7,11 +7,13 @@ results; it does not perform numerical calculations.
 
 ## Phase 1 status
 
+Phase 4 implements the deterministic analytical engine on top of the Phase 3
+dataset foundation. It provides an explicit allow-listed registry, validated
+Pandas/NumPy/SciPy operations, analytical execution records, and API access.
 Phase 3 implements the backend dataset ingestion and deterministic profiling
 foundation. Dataset upload, storage, metadata, profiling, preview, listing,
 ownership checks, and deletion are available through the FastAPI API. Analytical
-tools, CrewAI agents, LLM integration, visualization generation, and frontend
-features remain deferred.
+agents, LLM integration, and frontend features remain deferred.
 
 Created in this phase:
 
@@ -21,6 +23,7 @@ Created in this phase:
 - Environment-variable and ignore-file templates
 - Initial test and source directory boundaries
 - Dataset ingestion, profiling, and ownership-aware API endpoints
+- Deterministic analytical tools, registry, execution records, and API endpoints
 
 ## Planned repository layout
 

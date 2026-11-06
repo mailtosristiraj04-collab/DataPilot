@@ -27,4 +27,3 @@ class DatasetStorage:
             path.unlink()
         except FileNotFoundError:
             logger.warning("Dataset storage file was already absent key=%s", storage_key)
-

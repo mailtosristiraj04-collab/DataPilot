@@ -4,6 +4,8 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.analytics.registry import registry
+from app.analytics.service import AnalyticalService
 from app.core.config import Settings, get_settings
 from app.core.security import Principal, get_current_principal
 from app.db.models import Dataset
@@ -26,3 +28,7 @@ def get_owned_dataset(
 
 def get_dataset_service(settings: Settings = Depends(get_settings)) -> DatasetService:
     return DatasetService(settings)
+
+
+def get_analytical_service(settings: Settings = Depends(get_settings)) -> AnalyticalService:
+    return AnalyticalService(settings, registry)

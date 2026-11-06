@@ -28,9 +28,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         correlation_id = str(uuid4())
         detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
         return JSONResponse(

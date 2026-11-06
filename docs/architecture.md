@@ -138,6 +138,18 @@ Every tool will define:
 No agent will be given unrestricted Python, shell, filesystem, or database
 access.
 
+Phase 4 implements this boundary without agents: the registry maps stable tool
+names to Pydantic input models and fixed Python callables. The analytical
+service loads only an already-authorized dataset, dispatches through the
+registry, bounds result payloads stored in `analytical_executions`, and records
+status and duration. Unknown names, invalid columns, operators, aggregations,
+chart types, and limits fail with controlled validation errors.
+
+The current API exposes `GET /api/v1/analytics/tools` for registry discovery
+and `POST /api/v1/datasets/{dataset_id}/analytics` for execution. The latter
+reuses the ownership dependency and accepts only a tool name plus a validated
+parameters object; clients never provide filesystem paths or executable code.
+
 ## Frontend-backend communication
 
 - REST/JSON API under `/api/v1` for datasets, sessions, analysis requests,

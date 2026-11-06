@@ -55,9 +55,7 @@ def read_dataset(path: Path, file_format: str) -> pd.DataFrame:
         raise DatasetValidationError("The uploaded dataset could not be read") from exc
 
 
-def validate_dataset_shape(
-    dataframe: pd.DataFrame, max_rows: int, max_columns: int
-) -> None:
+def validate_dataset_shape(dataframe: pd.DataFrame, max_rows: int, max_columns: int) -> None:
     if dataframe.empty:
         raise DatasetValidationError("The uploaded dataset is empty")
     if dataframe.shape[0] > max_rows:
