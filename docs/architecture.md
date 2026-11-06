@@ -41,7 +41,7 @@ FastAPI API
   security-related cross-cutting policies.
 - `backend/app/db`: SQLAlchemy models/session management and Alembic revisions.
 - `backend/app/ingestion`: file type/size/shape validation, safe storage, and
-  dataset context creation.
+  dataset context creation, metadata extraction, and previews.
 - `backend/app/analytics`: registered, deterministic analytical functions and
   their input/output schemas. This layer never accepts arbitrary generated
   Python.
@@ -72,6 +72,24 @@ mode, a configured development principal is injected by the backend and all
 authorization checks still run against that principal. This mode must be
 explicitly enabled through environment configuration, must not be used in
 production, and does not make session IDs trusted.
+
+## Dataset ingestion and profiling
+
+The upload API accepts only CSV and XLSX multipart files. The backend streams
+the upload to a generated temporary file while enforcing `MAX_UPLOAD_SIZE_BYTES`,
+then validates both the extension and content signature/parser result. XLSX
+files must be ZIP-based Office documents; CSV structure is checked before
+Pandas parsing. User filenames are retained only as display metadata and never
+used as filesystem paths.
+
+Stored files use UUID-generated names under the configured backend-only
+`STORAGE_DIR`. PostgreSQL stores the relative storage key and metadata, not raw
+dataset contents. The service profiles a validated file deterministically with
+Pandas, recording dimensions, column data types, missing counts, duplicate-row
+count, and memory usage. `MAX_DATASET_ROWS`, `MAX_DATASET_COLUMNS`, and
+`MAX_PREVIEW_ROWS` provide practical resource limits. Preview reads are
+paginated at the API boundary, although profiling currently loads the validated
+dataset into a Pandas DataFrame.
 
 ## CrewAI coordination
 

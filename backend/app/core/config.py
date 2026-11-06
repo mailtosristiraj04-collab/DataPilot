@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     dev_principal_id: str = "local-development-user"
     database_url: str
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    storage_dir: Path = PROJECT_ROOT / "storage"
+    max_upload_size_bytes: int = 52_428_800
+    max_dataset_rows: int = 1_000_000
+    max_dataset_columns: int = 1_000
+    max_preview_rows: int = 100
 
     model_config = SettingsConfigDict(
         env_file=ROOT_ENV_FILE,

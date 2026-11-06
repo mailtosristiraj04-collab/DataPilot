@@ -7,11 +7,11 @@ results; it does not perform numerical calculations.
 
 ## Phase 1 status
 
-Phase 1 establishes the architecture and project scaffold only. It does not
-implement FastAPI endpoints, database access, dataset ingestion, analytical
-tools, CrewAI agents, LLM integration, visualization generation, or frontend
-features. Those are intentionally deferred to later phases and require approval
-before work begins.
+Phase 3 implements the backend dataset ingestion and deterministic profiling
+foundation. Dataset upload, storage, metadata, profiling, preview, listing,
+ownership checks, and deletion are available through the FastAPI API. Analytical
+tools, CrewAI agents, LLM integration, visualization generation, and frontend
+features remain deferred.
 
 Created in this phase:
 
@@ -20,6 +20,7 @@ Created in this phase:
 - Frontend Vite/TypeScript package configuration
 - Environment-variable and ignore-file templates
 - Initial test and source directory boundaries
+- Dataset ingestion, profiling, and ownership-aware API endpoints
 
 ## Planned repository layout
 
@@ -85,3 +86,7 @@ will be added in Phase 2.
   `google-genai` SDK.
 - Frontend application code is TypeScript/TSX; Plotly charts use
   `react-plotly.js`.
+- Uploaded dataset bytes are stored under the configured backend-only
+  `STORAGE_DIR`, never in PostgreSQL or the publicly served frontend.
+- Profiling is deterministic and performed by Pandas; configured row, column,
+  file-size, and preview limits protect memory and request resources.
